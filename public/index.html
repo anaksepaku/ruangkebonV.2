@@ -330,221 +330,130 @@
     </div>
 
     <script>
-      const sensors = ["power", "suhu", "ph", "tds", "pompa"];
-      const SENSOR_TIMEOUT = 30000; // 30 detik timeout
-      let activeSensors = 0;
-      let currentDeviceId = null;
+  const sensors = ["power", "suhu", "ph", "tds", "pompa"];
+  const SENSOR_TIMEOUT = 30000;
+  let activeSensors = 0;
 
-      async function updateDashboard() {
-        const updateTime = new Date().toLocaleTimeString();
-        document.getElementById(
-          "last-update"
-        ).textContent = `Terakhir update: ${updateTime}`;
+  async function updateDashboard() {
+    const updateTime = new Date().toLocaleTimeString();
+    document.getElementById("last-update").textContent = `Terakhir update: ${updateTime}`;
 
-        activeSensors = 0; // Reset counter
+    activeSensors = 0;
 
-        // PERBAIKAN: Gunakan endpoint status/all untuk mendapatkan semua status sekaligus
-        try {
-          const statusResponse = await fetch('/api/status/all');
-          const statusData = await statusResponse.json();
-          
-          // Update device info
-          updateDeviceInfo(statusData.device_status);
-          
-          // Update setiap sensor berdasarkan status
-          sensors.forEach(sensor => {
-            updateSensorFromStatus(sensor, statusData.sensors[sensor]);
-          });
-
-        } catch (error) {
-          console.error('Error fetching status:', error);
-          // Fallback: coba satu per satu jika endpoint status/all gagal
-          await updateSensorsIndividually();
-        }
-
-        updateSystemStatus();
-      }
-
-      // PERBAIKAN: Update dari endpoint status/all
-      function updateSensorFromStatus(sensorType, sensorData) {
-        const now = Date.now();
-        const lastUpdate = sensorData.lastUpdate;
-        const isOnline = sensorData.online && lastUpdate && (now - lastUpdate < SENSOR_TIMEOUT);
+    try {
+      // Gunakan endpoint status/all
+      const response = await fetch('/api/status/all');
+      const data = await response.json();
+      
+      console.log('📊 Status Data:', data); // Debug log
+      
+      // Update device info
+      updateDeviceInfo(data.device_status);
+      
+      // Update setiap sensor
+      sensors.forEach(sensor => {
+        const sensorData = data.sensors[sensor];
+        const isOnline = sensorData.online;
         
         if (isOnline) {
           activeSensors++;
-          updateSensorCard(sensorType, sensorData.data, true);
-          
-          // Update age info
-          const ageElement = document.getElementById(`${sensorType}-age`);
-          if (lastUpdate && ageElement) {
-            const ageSeconds = Math.round((now - lastUpdate) / 1000);
-            ageElement.textContent = `Update: ${ageSeconds}s ago`;
-            ageElement.style.color = ageSeconds < 10 ? '#27ae60' : 
-                                    ageSeconds < 20 ? '#f39c12' : '#e74c3c';
-          }
+          updateSensorDisplay(sensor, sensorData.data, true);
         } else {
-          updateSensorCard(sensorType, {}, false);
-          const ageElement = document.getElementById(`${sensorType}-age`);
-          if (ageElement) ageElement.textContent = 'No data';
+          updateSensorDisplay(sensor, {}, false);
         }
-      }
-
-      // Fallback: Update sensor satu per satu
-      async function updateSensorsIndividually() {
-        for (const sensor of sensors) {
-          try {
-            const response = await fetch(`/api/latest/${sensor}`);
-            const data = await response.json();
-
-            // PERBAIKAN: Cek apakah sensor online berdasarkan timestamp
-            const isOnline = data && data.unix_timestamp && 
-                           (Date.now() - data.unix_timestamp < SENSOR_TIMEOUT);
-
-            if (isOnline) {
-              updateSensorCard(sensor, data, true);
-              activeSensors++;
-              
-              // Update age info
-              const ageElement = document.getElementById(`${sensor}-age`);
-              if (ageElement && data.unix_timestamp) {
-                const ageSeconds = Math.round((Date.now() - data.unix_timestamp) / 1000);
-                ageElement.textContent = `Update: ${ageSeconds}s ago`;
-              }
-            } else {
-              updateSensorCard(sensor, data, false);
-              const ageElement = document.getElementById(`${sensor}-age`);
-              if (ageElement) ageElement.textContent = 'No data';
-            }
-          } catch (error) {
-            console.error(`Error fetching ${sensor}:`, error);
-            setOffline(sensor);
-          }
-        }
-      }
-
-      // PERBAIKAN: Update device information
-      function updateDeviceInfo(deviceStatus) {
-        const deviceIdElement = document.getElementById('device-id');
-        const deviceStatusElement = document.getElementById('device-status');
-        
-        if (deviceStatus && deviceStatus.deviceId) {
-          currentDeviceId = deviceStatus.deviceId;
-          deviceIdElement.textContent = deviceStatus.deviceId;
-          deviceStatusElement.textContent = deviceStatus.isOnline ? 'ONLINE' : 'OFFLINE';
-          deviceStatusElement.style.color = deviceStatus.isOnline ? '#51cf66' : '#ff6b6b';
-        } else {
-          deviceIdElement.textContent = '--';
-          deviceStatusElement.textContent = 'OFFLINE';
-          deviceStatusElement.style.color = '#ff6b6b';
-        }
-      }
-
-      function updateSensorCard(sensor, data, isOnline) {
-        const statusElement = document.getElementById(`${sensor}-status`);
-
-        if (isOnline) {
-          statusElement.className = "status online";
-          statusElement.innerHTML = "🟢 ONLINE";
-
-          // Update nilai berdasarkan sensor type
-          switch (sensor) {
-            case "power":
-              const powerValue = data.power || data.voltage ? '0.0' : '--';
-              document.getElementById("power-value").innerHTML =
-                powerValue + '<span class="unit">W</span>';
-              break;
-            case "suhu":
-              const suhuValue = data.suhu || data.suhu === 0 ? (data.suhu).toFixed(1) : '--';
-              document.getElementById("suhu-value").innerHTML =
-                suhuValue + '<span class="unit">°C</span>';
-              break;
-            case "ph":
-              const phValue = data.ph || data.ph === 0 ? (data.ph).toFixed(1) : '--';
-              document.getElementById("ph-value").innerHTML =
-                phValue + '<span class="unit">pH</span>';
-              break;
-            case "tds":
-              const tdsValue = data.tds || data.tds === 0 ? data.tds : '--';
-              document.getElementById("tds-value").innerHTML =
-                tdsValue + '<span class="unit">ppm</span>';
-              break;
-            case "pompa":
-              const status = data.status ? "ON" : "OFF";
-              document.getElementById("pompa-value").textContent = status;
-              break;
-          }
-        } else {
-          setOffline(sensor);
-        }
-      }
-
-      function setOffline(sensor) {
-        const statusElement = document.getElementById(`${sensor}-status`);
-        statusElement.className = "status offline";
-        statusElement.innerHTML = '<span class="blink">🔴</span> OFFLINE';
-
-        const valueElement = document.getElementById(`${sensor}-value`);
-        if (sensor !== "pompa") {
-          valueElement.innerHTML =
-            '--<span class="unit">' +
-            (sensor === "power"
-              ? "W"
-              : sensor === "suhu"
-              ? "°C"
-              : sensor === "ph"
-              ? "pH"
-              : "ppm") +
-            "</span>";
-        } else {
-          valueElement.textContent = "OFF";
-        }
-      }
-
-      function updateSystemStatus() {
-        const systemStatusElement = document.getElementById("system-status");
-        const sensorCountElement = document.getElementById("sensor-count");
-        const totalSensorsElement = document.getElementById("total-sensors");
-
-        sensorCountElement.textContent = activeSensors;
-        totalSensorsElement.textContent = sensors.length;
-
-        if (activeSensors === 0) {
-          systemStatusElement.innerHTML =
-            "🔴 <strong>SISTEM OFFLINE</strong> - Tidak ada sensor yang aktif";
-          systemStatusElement.style.color = "#ff6b6b";
-        } else if (activeSensors === sensors.length) {
-          systemStatusElement.innerHTML =
-            "🟢 <strong>SISTEM ONLINE</strong> - Semua sensor aktif";
-          systemStatusElement.style.color = "#51cf66";
-        } else {
-          systemStatusElement.innerHTML =
-            "🟡 <strong>SISTEM SEBAGIAN</strong> - " + activeSensors + " dari " + sensors.length + " sensor aktif";
-          systemStatusElement.style.color = "#ffd43b";
-        }
-      }
-
-      // Update setiap 3 detik
-      setInterval(updateDashboard, 3000);
-
-      // Initial load
-      updateDashboard();
-
-      // Auto refresh halaman setiap 10 menit untuk cleanup
-      setTimeout(() => {
-        location.reload();
-      }, 600000);
-
-      // Tambahkan event listener untuk error handling
-      window.addEventListener("error", function (e) {
-        console.error("Global error:", e.error);
       });
 
-      // Tambahkan loading state
-      document.addEventListener("DOMContentLoaded", function () {
-        document.getElementById("system-status").innerHTML =
-          "🔄 <strong>MEMUAT...</strong> - Sistem sedang diinisialisasi";
+      updateSystemStatus();
+      
+    } catch (error) {
+      console.error('❌ Error fetching data:', error);
+      // Set semua offline jika error
+      sensors.forEach(sensor => {
+        updateSensorDisplay(sensor, {}, false);
       });
-    </script>
+      updateSystemStatus();
+    }
+  }
+
+  function updateDeviceInfo(deviceStatus) {
+    const deviceIdElement = document.getElementById('device-id');
+    const deviceStatusElement = document.getElementById('device-status');
+    
+    if (deviceStatus && deviceStatus.deviceId) {
+      deviceIdElement.textContent = deviceStatus.deviceId;
+      deviceStatusElement.textContent = deviceStatus.isOnline ? 'ONLINE' : 'OFFLINE';
+      deviceStatusElement.style.color = deviceStatus.isOnline ? '#51cf66' : '#ff6b6b';
+    }
+  }
+
+  function updateSensorDisplay(sensor, data, isOnline) {
+    const statusElement = document.getElementById(`${sensor}-status`);
+    const valueElement = document.getElementById(`${sensor}-value`);
+
+    if (isOnline) {
+      statusElement.className = "status online";
+      statusElement.innerHTML = "🟢 ONLINE";
+
+      switch (sensor) {
+        case "power":
+          const power = data.power || 0;
+          valueElement.innerHTML = `${power.toFixed(1)}<span class="unit">W</span>`;
+          console.log(`⚡ Power: ${power}W`); // Debug
+          break;
+        case "suhu":
+          const suhu = data.suhu || 0;
+          valueElement.innerHTML = `${suhu.toFixed(1)}<span class="unit">°C</span>`;
+          break;
+        case "ph":
+          const ph = data.ph || 0;
+          valueElement.innerHTML = `${ph.toFixed(1)}<span class="unit">pH</span>`;
+          break;
+        case "tds":
+          const tds = data.tds || 0;
+          valueElement.innerHTML = `${tds}<span class="unit">ppm</span>`;
+          break;
+        case "pompa":
+          valueElement.textContent = data.status ? "ON" : "OFF";
+          break;
+      }
+    } else {
+      statusElement.className = "status offline";
+      statusElement.innerHTML = '<span class="blink">🔴</span> OFFLINE';
+      
+      if (sensor !== "pompa") {
+        valueElement.innerHTML = `--<span class="unit">${
+          sensor === "power" ? "W" : 
+          sensor === "suhu" ? "°C" : 
+          sensor === "ph" ? "pH" : "ppm"
+        }</span>`;
+      } else {
+        valueElement.textContent = "OFF";
+      }
+    }
+  }
+
+  function updateSystemStatus() {
+    const systemStatusElement = document.getElementById("system-status");
+    const sensorCountElement = document.getElementById("sensor-count");
+
+    sensorCountElement.textContent = activeSensors;
+
+    if (activeSensors === 0) {
+      systemStatusElement.innerHTML = "🔴 <strong>SISTEM OFFLINE</strong> - Tidak ada sensor aktif";
+      systemStatusElement.style.color = "#ff6b6b";
+    } else if (activeSensors === sensors.length) {
+      systemStatusElement.innerHTML = "🟢 <strong>SISTEM ONLINE</strong> - Semua sensor aktif";
+      systemStatusElement.style.color = "#51cf66";
+    } else {
+      systemStatusElement.innerHTML = `🟡 <strong>SISTEM SEBAGIAN</strong> - ${activeSensors} dari ${sensors.length} sensor aktif`;
+      systemStatusElement.style.color = "#ffd43b";
+    }
+  }
+
+  // Update setiap 3 detik
+  setInterval(updateDashboard, 3000);
+  updateDashboard(); // Initial load
+</script>
   </body>
 </html>
+
