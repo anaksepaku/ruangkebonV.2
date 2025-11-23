@@ -164,6 +164,28 @@
           opacity: 1;
         }
       }
+      .device-warning {
+        background: #fff3cd;
+        color: #856404;
+        padding: 10px;
+        border-radius: 5px;
+        margin-top: 10px;
+        font-size: 0.9em;
+      }
+      .sync-status {
+        padding: 8px 15px;
+        border-radius: 20px;
+        font-size: 0.9em;
+        margin-left: 10px;
+      }
+      .sync-ok {
+        background: #d4edda;
+        color: #155724;
+      }
+      .sync-warning {
+        background: #fff3cd;
+        color: #856404;
+      }
     </style>
   </head>
   <body>
@@ -176,12 +198,18 @@
       </div>
 
       <div class="status-card">
-        <h3>Status Sistem</h3>
+        <h3>Status Sistem Pompa</h3>
         <div id="status" class="offline">
-          🔴 OFFLINE - Menunggu koneksi perangkat...
+          🔴 OFFLINE - Menunggu koneksi perangkat pompa...
         </div>
-        <div id="deviceInfo">Device ID: Unknown</div>
-        <div id="lastSeen">Last seen: Never</div>
+        <div id="deviceInfo">Device ID: --</div>
+        <div id="lastSeen">Last seen: --</div>
+        <div id="syncStatus" class="sync-status sync-warning" style="display: none;">
+          ⚠️ Menunggu sinkronisasi status...
+        </div>
+        <div id="deviceWarning" class="device-warning" style="display: none;">
+          ⚠️ Device pompa khusus belum terdeteksi. Pastikan ESP32 pompa terhubung.
+        </div>
       </div>
 
       <div class="control-panel">
@@ -190,17 +218,19 @@
 
         <div id="pompa-info">
           <p>Mode: <span id="pompa-mode">--</span></p>
+          <p>Status Aktual: <span id="actual-status">--</span></p>
           <p>Terakhir diupdate: <span id="last-updated">--</span></p>
         </div>
 
         <div class="control-buttons">
-          <button class="btn btn-on" onclick="controlPompa('on')" id="btn-on">
+          <button class="btn btn-on" onclick="controlPompa('on')" id="btn-on" disabled>
             🚀 NYALAKAN POMPA
           </button>
           <button
             class="btn btn-off"
             onclick="controlPompa('off')"
             id="btn-off"
+            disabled
           >
             ⏹️ MATIKAN POMPA
           </button>
@@ -217,7 +247,7 @@
             <span>Sore: 16:00 - 16:15</span>
             <span id="schedule-evening">⏳ Menunggu...</span>
           </div>
-          <button class="btn" onclick="toggleAutoMode()" id="btn-auto">
+          <button class="btn" onclick="toggleAutoMode()" id="btn-auto" disabled>
             🔄 Aktifkan Mode Otomatis
           </button>
         </div>
@@ -232,6 +262,7 @@
               <th>Status</th>
               <th>Mode</th>
               <th>Dikontrol Oleh</th>
+              <th>Sumber</th>
             </tr>
           </thead>
           <tbody id="tableBody"></tbody>
@@ -247,92 +278,132 @@
         "
       >
         <h4>⚠️ Perhatian:</h4>
-        <p>• Pastikan supply air cukup sebelum menyalakan pompa</p>
-        <p>• Matikan pompa saat hujan atau kondisi tanah sudah basah</p>
-        <p>• Periksa kondisi pompa secara berkala</p>
+        <p>• Dashboard akan selalu menampilkan status AKTUAL dari ESP32 pompa</p>
+        <p>• Kontrol manual hanya mengirim perintah, status akan update otomatis</p>
+        <p>• Pastikan ESP32 pompa mengirim data status secara berkala</p>
       </div>
     </div>
 
     <script>
       let refreshInterval;
       let isAutoMode = false;
+      let currentPompaStatus = false;
+      let isPompaDeviceOnline = false;
+      let lastPompaData = null;
+      let isSynced = false;
 
+      // PERBAIKAN: Load data khusus untuk device pompa
       function loadData() {
-        fetch("/api/latest/pompa")
+        fetch("/api/status/all")
           .then((response) => response.json())
           .then((data) => {
-            updateDisplay(data);
-            updateDeviceStatus(data.device_status);
+            console.log("📊 All Status Data:", data);
+            processPompaData(data);
           })
           .catch((error) => {
-            console.error("Error:", error);
-            document.getElementById("status").className = "offline";
-            document.getElementById("status").textContent =
-              "❌ ERROR - Tidak dapat terhubung ke server";
+            console.error("Error fetching status:", error);
+            setOfflineStatus();
           });
       }
 
-      function loadHistory() {
-        fetch("/api/all/pompa")
-          .then((response) => response.json())
-          .then((data) => {
-            updateTable(data.data.slice(-10));
-          })
-          .catch((error) => {
-            console.error("Error loading history:", error);
+      // PERBAIKAN: Process data khusus untuk device pompa
+      function processPompaData(data) {
+        const pompaSensor = data.sensors.pompa;
+        const deviceStatus = data.device_status;
+        
+        console.log("🔧 Pompa Sensor Data:", pompaSensor);
+        console.log("🔧 Device Status:", deviceStatus);
+
+        // Cek apakah ada device pompa yang online
+        const pompaDevices = findPompaDevices(data);
+        
+        if (pompaDevices.length > 0) {
+          // Ada device pompa online
+          const pompaDevice = pompaDevices[0]; // Ambil device pompa pertama
+          isPompaDeviceOnline = true;
+          
+          updateDeviceStatus({
+            isOnline: true,
+            lastSeen: pompaSensor.lastUpdate,
+            deviceId: pompaDevice.deviceId
           });
-      }
 
-      function updateDeviceStatus(status) {
-        const statusElement = document.getElementById("status");
-        const lastSeenElement = document.getElementById("lastSeen");
-        const deviceInfoElement = document.getElementById("deviceInfo");
-
-        if (status.isOnline) {
-          statusElement.className = "online";
-          statusElement.textContent =
-            "✅ ONLINE - Terhubung ke Kontroler Pompa";
-
-          if (status.lastSeen) {
-            const lastSeen = new Date(status.lastSeen);
-            lastSeenElement.textContent = `Last seen: ${lastSeen.toLocaleString()}`;
+          // PERBAIKAN: Update display dengan data aktual dari ESP32
+          if (pompaSensor.data && Object.keys(pompaSensor.data).length > 0) {
+            lastPompaData = pompaSensor.data;
+            updateDisplayFromESP32(pompaSensor.data);
+            checkSyncStatus(pompaSensor.data);
+          } else {
+            // Data pompa kosong, tampilkan status default
+            updateDisplayFromESP32({ status: false, mode: "manual" });
           }
-
-          if (status.deviceId) {
-            deviceInfoElement.textContent = `Device ID: ${status.deviceId}`;
-          }
+          
         } else {
-          statusElement.className = "offline";
-          statusElement.textContent = "🔴 OFFLINE - Kontroler tidak terhubung";
+          // Tidak ada device pompa online
+          isPompaDeviceOnline = false;
+          setOfflineStatus();
         }
+
+        loadHistory();
       }
 
-      function updateDisplay(data) {
+      // PERBAIKAN: Cari device pompa berdasarkan data sensors
+      function findPompaDevices(data) {
+        const pompaDevices = [];
+        
+        // Cek semua sensor data untuk device yang mengandung "POMPA"
+        Object.keys(data.sensors).forEach(sensorType => {
+          const sensor = data.sensors[sensorType];
+          if (sensor.data && sensor.data.deviceId) {
+            const deviceId = sensor.data.deviceId;
+            if (deviceId.includes("POMPA") || 
+                deviceId.includes("pompa") || 
+                deviceId.includes("Pompa") ||
+                sensorType === "pompa") {
+              pompaDevices.push({
+                deviceId: deviceId,
+                sensorType: sensorType,
+                lastUpdate: sensor.lastUpdate
+              });
+            }
+          }
+        });
+        
+        console.log("🔍 Found Pompa Devices:", pompaDevices);
+        return pompaDevices;
+      }
+
+      // PERBAIKAN BARU: Update display berdasarkan data aktual dari ESP32
+      function updateDisplayFromESP32(data) {
+        console.log("🔄 Update Display from ESP32:", data);
+        
         if (data.status !== undefined) {
           const pompaStatus = document.getElementById("pompa-status");
-          const btnOn = document.getElementById("btn-on");
-          const btnOff = document.getElementById("btn-off");
+          const actualStatusElement = document.getElementById("actual-status");
+
+          // SELALU update status berdasarkan data dari ESP32
+          currentPompaStatus = data.status;
 
           if (data.status) {
-            // Pompa ON
+            // Pompa ON - Status dari ESP32
             pompaStatus.className = "pompa-status pompa-on";
             pompaStatus.innerHTML = "💧 POMPA MENYALA";
-            btnOn.disabled = true;
-            btnOff.disabled = false;
+            actualStatusElement.textContent = "ON (Dari ESP32)";
+            actualStatusElement.style.color = "#28a745";
           } else {
-            // Pompa OFF
+            // Pompa OFF - Status dari ESP32
             pompaStatus.className = "pompa-status pompa-off";
             pompaStatus.innerHTML = "🔴 POMPA MATI";
-            btnOn.disabled = false;
-            btnOff.disabled = true;
+            actualStatusElement.textContent = "OFF (Dari ESP32)";
+            actualStatusElement.style.color = "#dc3545";
           }
 
-          document.getElementById("pompa-mode").textContent =
-            data.mode || "manual";
-          document.getElementById("last-updated").textContent =
-            data.last_updated
-              ? new Date(data.last_updated).toLocaleString()
-              : "--";
+          // Update button states berdasarkan status aktual
+          updateButtonStates();
+
+          document.getElementById("pompa-mode").textContent = data.mode || "manual";
+          document.getElementById("last-updated").textContent = 
+            new Date().toLocaleTimeString();
 
           isAutoMode = data.mode === "auto";
           updateAutoButton();
@@ -340,62 +411,218 @@
         }
       }
 
+      // PERBAIKAN: Update state tombol berdasarkan status aktual
+      function updateButtonStates() {
+        const btnOn = document.getElementById("btn-on");
+        const btnOff = document.getElementById("btn-off");
+
+        if (currentPompaStatus) {
+          // Pompa sedang ON
+          btnOn.disabled = true;
+          btnOff.disabled = false;
+        } else {
+          // Pompa sedang OFF
+          btnOn.disabled = false;
+          btnOff.disabled = true;
+        }
+      }
+
+      // PERBAIKAN BARU: Cek status sinkronisasi
+      function checkSyncStatus(data) {
+        const syncElement = document.getElementById("syncStatus");
+        
+        if (data && data.status !== undefined) {
+          syncElement.style.display = "inline-block";
+          syncElement.className = "sync-status sync-ok";
+          syncElement.textContent = "✅ Status tersinkronisasi";
+          isSynced = true;
+        } else {
+          syncElement.style.display = "inline-block";
+          syncElement.className = "sync-status sync-warning";
+          syncElement.textContent = "⚠️ Menunggu data status...";
+          isSynced = false;
+        }
+      }
+
+      function loadHistory() {
+        fetch("/api/all/pompa")
+          .then((response) => response.json())
+          .then((data) => {
+            // Filter hanya data dari device pompa
+            const pompaHistory = data.data.filter(item => 
+              item.deviceId && (
+                item.deviceId.includes("POMPA") || 
+                item.deviceId.includes("pompa") || 
+                item.deviceId.includes("Pompa")
+              )
+            );
+            updateTable(pompaHistory.slice(-10));
+          })
+          .catch((error) => {
+            console.error("Error loading history:", error);
+          });
+      }
+
+      // PERBAIKAN: Update device status khusus pompa
+      function updateDeviceStatus(status) {
+        const statusElement = document.getElementById("status");
+        const lastSeenElement = document.getElementById("lastSeen");
+        const deviceInfoElement = document.getElementById("deviceInfo");
+        const warningElement = document.getElementById("deviceWarning");
+
+        if (status.isOnline && isPompaDeviceOnline) {
+          statusElement.className = "online";
+          statusElement.textContent = "✅ ONLINE - Terhubung ke Kontroler Pompa";
+          
+          if (status.lastSeen) {
+            const lastSeen = new Date(status.lastSeen);
+            const now = new Date();
+            const diffMinutes = Math.round((now - lastSeen) / 60000);
+            lastSeenElement.textContent = `Last seen: ${lastSeen.toLocaleString()} (${diffMinutes} menit lalu)`;
+          }
+
+          if (status.deviceId) {
+            deviceInfoElement.textContent = `Device ID: ${status.deviceId}`;
+          }
+
+          warningElement.style.display = "none";
+          
+          // Enable kontrol buttons
+          document.getElementById("btn-on").disabled = false;
+          document.getElementById("btn-off").disabled = false;
+          document.getElementById("btn-auto").disabled = false;
+          
+        } else {
+          setOfflineStatus();
+        }
+      }
+
+      // PERBAIKAN: Set status offline
+      function setOfflineStatus() {
+        const statusElement = document.getElementById("status");
+        const deviceInfoElement = document.getElementById("deviceInfo");
+        const lastSeenElement = document.getElementById("lastSeen");
+        const warningElement = document.getElementById("deviceWarning");
+        const syncElement = document.getElementById("syncStatus");
+
+        statusElement.className = "offline";
+        statusElement.textContent = "🔴 OFFLINE - Kontroler Pompa tidak terhubung";
+        deviceInfoElement.textContent = "Device ID: --";
+        lastSeenElement.textContent = "Last seen: --";
+        syncElement.style.display = "none";
+        
+        // Tampilkan warning jika ada device lain tapi bukan pompa
+        warningElement.style.display = "block";
+        
+        // Disable kontrol buttons
+        document.getElementById("btn-on").disabled = true;
+        document.getElementById("btn-off").disabled = true;
+        document.getElementById("btn-auto").disabled = true;
+        
+        // Set pompa status to OFF
+        document.getElementById("pompa-status").className = "pompa-status pompa-off";
+        document.getElementById("pompa-status").innerHTML = "🔴 POMPA MATI";
+        document.getElementById("pompa-mode").textContent = "--";
+        document.getElementById("actual-status").textContent = "--";
+        document.getElementById("last-updated").textContent = "--";
+      }
+
+      // PERBAIKAN: Kontrol pompa - hanya mengirim perintah, status akan update otomatis
       function controlPompa(action) {
-        const button =
-          action === "on"
-            ? document.getElementById("btn-on")
-            : document.getElementById("btn-off");
+        if (!isPompaDeviceOnline) {
+          showNotification("❌ Device pompa offline, tidak dapat mengontrol", "error");
+          return;
+        }
+
+        const button = action === 'on' ? document.getElementById("btn-on") : document.getElementById("btn-off");
         const originalText = button.innerHTML;
 
-        button.innerHTML = "⏳ Memproses...";
+        button.innerHTML = "⏳ Mengirim perintah...";
         button.disabled = true;
 
-        fetch("/api/pompa/control", {
+        // PERBAIKAN: Tampilkan status "menunggu konfirmasi"
+        const pompaStatus = document.getElementById("pompa-status");
+        const actualStatusElement = document.getElementById("actual-status");
+        
+        if (action === 'on') {
+          pompaStatus.className = "pompa-status pompa-on blink";
+          pompaStatus.innerHTML = "⏳ MENYALAKAN...";
+          actualStatusElement.textContent = "Menunggu konfirmasi ESP32...";
+          actualStatusElement.style.color = "#ffc107";
+        } else {
+          pompaStatus.className = "pompa-status pompa-off blink";
+          pompaStatus.innerHTML = "⏳ MEMATIKAN...";
+          actualStatusElement.textContent = "Menunggu konfirmasi ESP32...";
+          actualStatusElement.style.color = "#ffc107";
+        }
+
+        fetch("/api/data/pompa", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            action: action,
+            deviceId: "POMPA_CONTROL_WEB",
+            status: action === "on",
             mode: "manual",
+            controlled_by: "web-dashboard",
+            timestamp: new Date().toLocaleTimeString(),
+            date: new Date().toLocaleDateString(),
+            command: action // PERBAIKAN: Tambah field command untuk tracking
           }),
         })
           .then((response) => response.json())
           .then((data) => {
             button.innerHTML = originalText;
-            loadData(); // Refresh status
-            loadHistory(); // Refresh history
+            console.log("✅ Control response:", data);
+            
             showNotification(
-              `Pompa berhasil ${action === "on" ? "dinyalakan" : "dimatikan"}`,
+              `Perintah ${action === "on" ? "nyala" : "mati"} dikirim ke ESP32`,
               "success"
             );
+
+            // PERBAIKAN: Tunggu update status dari ESP32 (akan datang via auto-refresh)
+            // Jangan langsung update UI, tunggu data aktual dari ESP32
+            
           })
           .catch((error) => {
             button.innerHTML = originalText;
             button.disabled = false;
-            showNotification("Gagal mengontrol pompa", "error");
+            
+            // Kembalikan status sebelumnya jika gagal
+            updateDisplayFromESP32(lastPompaData);
+            
+            showNotification("Gagal mengirim perintah ke ESP32", "error");
             console.error("Error:", error);
           });
       }
 
       function toggleAutoMode() {
-        const action = isAutoMode ? "off" : "on";
+        if (!isPompaDeviceOnline) {
+          showNotification("❌ Device pompa offline, tidak dapat mengubah mode", "error");
+          return;
+        }
+
         const mode = isAutoMode ? "manual" : "auto";
 
-        fetch("/api/pompa/control", {
+        fetch("/api/data/pompa", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            action: action,
+            deviceId: "POMPA_CONTROL_WEB",
+            status: currentPompaStatus,
             mode: mode,
+            controlled_by: "web-dashboard",
+            timestamp: new Date().toLocaleTimeString(),
+            date: new Date().toLocaleDateString()
           }),
         })
           .then((response) => response.json())
           .then((data) => {
-            loadData(); // Refresh status
-            showNotification(`Mode ${mode} diaktifkan`, "success");
+            showNotification(`Mode ${mode} dikirim ke ESP32`, "success");
+            // Status akan update otomatis via refresh
           })
           .catch((error) => {
             showNotification("Gagal mengubah mode", "error");
@@ -423,7 +650,7 @@
         const eveningSchedule = document.getElementById("schedule-evening");
 
         // Update jadwal pagi
-        if (hour === 6 && minute >= 0 && minute <= 15 && isAutoMode) {
+        if (hour === 6 && minute >= 0 && minute <= 15 && isAutoMode && isPompaDeviceOnline) {
           morningSchedule.innerHTML = "💧 Menyiram...";
           morningSchedule.className = "blink";
         } else {
@@ -432,7 +659,7 @@
         }
 
         // Update jadwal sore
-        if (hour === 16 && minute >= 0 && minute <= 15 && isAutoMode) {
+        if (hour === 16 && minute >= 0 && minute <= 15 && isAutoMode && isPompaDeviceOnline) {
           eveningSchedule.innerHTML = "💧 Menyiram...";
           eveningSchedule.className = "blink";
         } else {
@@ -445,13 +672,20 @@
         const tbody = document.getElementById("tableBody");
         tbody.innerHTML = "";
 
+        if (data.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: #666;">Belum ada riwayat kontrol</td></tr>`;
+          return;
+        }
+
         data.reverse().forEach((item) => {
           const status = item.status ? "💧 MENYALA" : "🔴 MATI";
+          const source = item.controlled_by === "web-dashboard" ? "Dashboard" : "ESP32";
           const row = `<tr>
                     <td>${item.timestamp || "N/A"}</td>
                     <td>${status}</td>
                     <td>${item.mode || "manual"}</td>
                     <td>${item.controlled_by || "system"}</td>
+                    <td>${source}</td>
                 </tr>`;
           tbody.innerHTML += row;
         });
@@ -488,24 +722,28 @@
       function startAutoRefresh() {
         refreshInterval = setInterval(() => {
           loadData();
-          loadHistory();
-          updateSchedule();
-        }, 3000);
-      }
-
-      function stopAutoRefresh() {
-        clearInterval(refreshInterval);
+        }, 2000); // Refresh lebih cepat untuk respons yang lebih baik
       }
 
       // Load data pertama kali
       loadData();
-      loadHistory();
 
       // Start auto refresh
       startAutoRefresh();
 
       // Update schedule setiap menit
       setInterval(updateSchedule, 60000);
+
+      // Debug function
+      window.debugPompa = function() {
+        console.log("🔧 Debug Pompa Status:");
+        console.log("- Pompa Device Online:", isPompaDeviceOnline);
+        console.log("- Current Status:", currentPompaStatus);
+        console.log("- Auto Mode:", isAutoMode);
+        console.log("- Last Data:", lastPompaData);
+        console.log("- Is Synced:", isSynced);
+        loadData();
+      }
     </script>
   </body>
 </html>
