@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kontrol Pompa - Ruang Kebon</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+        background: #f5f5f5;
+      }
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+      }
+      .header {
+        text-align: center;
+        margin-bottom: 30px;
+      }
+      .header h1 {
+        color: #2ecc71;
+      }
+      .back-button {
+        display: inline-block;
+        padding: 10px 20px;
+        background: #3498db;
+        color: white;
+        text-decoration: none;
+        border-radius: 5px;
+        margin-bottom: 20px;
+      }
+      .control-panel {
+        background: white;
+        padding: 30px;
+        border-radius: 15px;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        text-align: center;
+        margin-bottom: 30px;
+        border-left: 5px solid #2ecc71;
+      }
+      .pompa-status {
+        font-size: 3em;
+        font-weight: bold;
+        margin: 20px 0;
+        padding: 20px;
+        border-radius: 10px;
+        transition: all 0.3s ease;
+      }
+      .pompa-on {
+        background: #d4edda;
+        color: #155724;
+        border: 3px solid #28a745;
+      }
+      .pompa-off {
+        background: #f8d7da;
+        color: #721c24;
+        border: 3px solid #dc3545;
+      }
+      .control-buttons {
+        margin: 30px 0;
+      }
+      .btn {
+        padding: 15px 30px;
+        margin: 10px;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 1.2em;
+        font-weight: bold;
+        transition: all 0.3s ease;
+      }
+      .btn-on {
+        background: #28a745;
+        color: white;
+      }
+      .btn-on:hover {
+        background: #218838;
+        transform: scale(1.05);
+      }
+      .btn-off {
+        background: #dc3545;
+        color: white;
+      }
+      .btn-off:hover {
+        background: #c82333;
+        transform: scale(1.05);
+      }
+      .btn:disabled {
+        background: #6c757d;
+        cursor: not-allowed;
+        transform: none;
+      }
+      .status-card {
+        width: 100%;
+        text-align: left;
+        margin-bottom: 20px;
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      #status {
+        padding: 15px;
+        border-radius: 8px;
+        margin: 10px 0;
+        font-weight: bold;
+        text-align: center;
+      }
+      .online {
+        background: #d4edda;
+        color: #155724;
+      }
+      .offline {
+        background: #f8d7da;
+        color: #721c24;
+      }
+      .data-table {
+        width: 100%;
+        background: white;
+        border-radius: 10px;
+        padding: 15px;
+        margin-top: 20px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+      }
+      th {
+        background: #f1f1f1;
+      }
+      .auto-control {
+        margin: 20px 0;
+        padding: 20px;
+        background: #e8f4f8;
+        border-radius: 10px;
+      }
+      .schedule-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px;
+        margin: 5px 0;
+        background: white;
+        border-radius: 5px;
+      }
+      .blink {
+        animation: blink 1s infinite;
+      }
+      @keyframes blink {
+        0% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+        100% {
+          opacity: 1;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <a href="index.html" class="back-button">← Kembali ke Dashboard</a>
+
+      <div class="header">
+        <h1>🔌 Kontrol Pompa Air - Ruang Kebon</h1>
+        <p>Sistem Kontrol Otomatis dan Manual Pengairan Kebun</p>
+      </div>
+
+      <div class="status-card">
+        <h3>Status Sistem</h3>
+        <div id="status" class="offline">
+          🔴 OFFLINE - Menunggu koneksi perangkat...
+        </div>
+        <div id="deviceInfo">Device ID: Unknown</div>
+        <div id="lastSeen">Last seen: Never</div>
+      </div>
+
+      <div class="control-panel">
+        <h2>Status Pompa Saat Ini</h2>
+        <div id="pompa-status" class="pompa-off">🔴 POMPA MATI</div>
+
+        <div id="pompa-info">
+          <p>Mode: <span id="pompa-mode">--</span></p>
+          <p>Terakhir diupdate: <span id="last-updated">--</span></p>
+        </div>
+
+        <div class="control-buttons">
+          <button class="btn btn-on" onclick="controlPompa('on')" id="btn-on">
+            🚀 NYALAKAN POMPA
+          </button>
+          <button
+            class="btn btn-off"
+            onclick="controlPompa('off')"
+            id="btn-off"
+          >
+            ⏹️ MATIKAN POMPA
+          </button>
+        </div>
+
+        <div class="auto-control">
+          <h3>⏰ Kontrol Otomatis</h3>
+          <p>Jadwal penyiraman otomatis:</p>
+          <div class="schedule-item">
+            <span>Pagi: 06:00 - 06:15</span>
+            <span id="schedule-morning">⏳ Menunggu...</span>
+          </div>
+          <div class="schedule-item">
+            <span>Sore: 16:00 - 16:15</span>
+            <span id="schedule-evening">⏳ Menunggu...</span>
+          </div>
+          <button class="btn" onclick="toggleAutoMode()" id="btn-auto">
+            🔄 Aktifkan Mode Otomatis
+          </button>
+        </div>
+      </div>
+
+      <div class="data-table">
+        <h3>Riwayat Kontrol Pompa</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Waktu</th>
+              <th>Status</th>
+              <th>Mode</th>
+              <th>Dikontrol Oleh</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+
+      <div
+        style="
+          margin-top: 20px;
+          padding: 15px;
+          background: #fff3cd;
+          border-radius: 8px;
+        "
+      >
+        <h4>⚠️ Perhatian:</h4>
+        <p>• Pastikan supply air cukup sebelum menyalakan pompa</p>
+        <p>• Matikan pompa saat hujan atau kondisi tanah sudah basah</p>
+        <p>• Periksa kondisi pompa secara berkala</p>
+      </div>
+    </div>
+
+    <script>
+      let refreshInterval;
+      let isAutoMode = false;
+
+      function loadData() {
+        fetch("/api/latest/pompa")
+          .then((response) => response.json())
+          .then((data) => {
+            updateDisplay(data);
+            updateDeviceStatus(data.device_status);
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+            document.getElementById("status").className = "offline";
+            document.getElementById("status").textContent =
+              "❌ ERROR - Tidak dapat terhubung ke server";
+          });
+      }
+
+      function loadHistory() {
+        fetch("/api/all/pompa")
+          .then((response) => response.json())
+          .then((data) => {
+            updateTable(data.data.slice(-10));
+          })
+          .catch((error) => {
+            console.error("Error loading history:", error);
+          });
+      }
+
+      function updateDeviceStatus(status) {
+        const statusElement = document.getElementById("status");
+        const lastSeenElement = document.getElementById("lastSeen");
+        const deviceInfoElement = document.getElementById("deviceInfo");
+
+        if (status.isOnline) {
+          statusElement.className = "online";
+          statusElement.textContent =
+            "✅ ONLINE - Terhubung ke Kontroler Pompa";
+
+          if (status.lastSeen) {
+            const lastSeen = new Date(status.lastSeen);
+            lastSeenElement.textContent = `Last seen: ${lastSeen.toLocaleString()}`;
+          }
+
+          if (status.deviceId) {
+            deviceInfoElement.textContent = `Device ID: ${status.deviceId}`;
+          }
+        } else {
+          statusElement.className = "offline";
+          statusElement.textContent = "🔴 OFFLINE - Kontroler tidak terhubung";
+        }
+      }
+
+      function updateDisplay(data) {
+        if (data.status !== undefined) {
+          const pompaStatus = document.getElementById("pompa-status");
+          const btnOn = document.getElementById("btn-on");
+          const btnOff = document.getElementById("btn-off");
+
+          if (data.status) {
+            // Pompa ON
+            pompaStatus.className = "pompa-status pompa-on";
+            pompaStatus.innerHTML = "💧 POMPA MENYALA";
+            btnOn.disabled = true;
+            btnOff.disabled = false;
+          } else {
+            // Pompa OFF
+            pompaStatus.className = "pompa-status pompa-off";
+            pompaStatus.innerHTML = "🔴 POMPA MATI";
+            btnOn.disabled = false;
+            btnOff.disabled = true;
+          }
+
+          document.getElementById("pompa-mode").textContent =
+            data.mode || "manual";
+          document.getElementById("last-updated").textContent =
+            data.last_updated
+              ? new Date(data.last_updated).toLocaleString()
+              : "--";
+
+          isAutoMode = data.mode === "auto";
+          updateAutoButton();
+          updateSchedule();
+        }
+      }
+
+      function controlPompa(action) {
+        const button =
+          action === "on"
+            ? document.getElementById("btn-on")
+            : document.getElementById("btn-off");
+        const originalText = button.innerHTML;
+
+        button.innerHTML = "⏳ Memproses...";
+        button.disabled = true;
+
+        fetch("/api/pompa/control", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: action,
+            mode: "manual",
+          }),
+        })
+          .then((response) => response.json())
+          .then((data) => {
+            button.innerHTML = originalText;
+            loadData(); // Refresh status
+            loadHistory(); // Refresh history
+            showNotification(
+              `Pompa berhasil ${action === "on" ? "dinyalakan" : "dimatikan"}`,
+              "success"
+            );
+          })
+          .catch((error) => {
+            button.innerHTML = originalText;
+            button.disabled = false;
+            showNotification("Gagal mengontrol pompa", "error");
+            console.error("Error:", error);
+          });
+      }
+
+      function toggleAutoMode() {
+        const action = isAutoMode ? "off" : "on";
+        const mode = isAutoMode ? "manual" : "auto";
+
+        fetch("/api/pompa/control", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: action,
+            mode: mode,
+          }),
+        })
+          .then((response) => response.json())
+          .then((data) => {
+            loadData(); // Refresh status
+            showNotification(`Mode ${mode} diaktifkan`, "success");
+          })
+          .catch((error) => {
+            showNotification("Gagal mengubah mode", "error");
+            console.error("Error:", error);
+          });
+      }
+
+      function updateAutoButton() {
+        const btnAuto = document.getElementById("btn-auto");
+        if (isAutoMode) {
+          btnAuto.innerHTML = "⏹️ Nonaktifkan Mode Otomatis";
+          btnAuto.style.background = "#dc3545";
+        } else {
+          btnAuto.innerHTML = "🔄 Aktifkan Mode Otomatis";
+          btnAuto.style.background = "#28a745";
+        }
+      }
+
+      function updateSchedule() {
+        const now = new Date();
+        const hour = now.getHours();
+        const minute = now.getMinutes();
+
+        const morningSchedule = document.getElementById("schedule-morning");
+        const eveningSchedule = document.getElementById("schedule-evening");
+
+        // Update jadwal pagi
+        if (hour === 6 && minute >= 0 && minute <= 15 && isAutoMode) {
+          morningSchedule.innerHTML = "💧 Menyiram...";
+          morningSchedule.className = "blink";
+        } else {
+          morningSchedule.innerHTML = "⏳ Menunggu...";
+          morningSchedule.className = "";
+        }
+
+        // Update jadwal sore
+        if (hour === 16 && minute >= 0 && minute <= 15 && isAutoMode) {
+          eveningSchedule.innerHTML = "💧 Menyiram...";
+          eveningSchedule.className = "blink";
+        } else {
+          eveningSchedule.innerHTML = "⏳ Menunggu...";
+          eveningSchedule.className = "";
+        }
+      }
+
+      function updateTable(data) {
+        const tbody = document.getElementById("tableBody");
+        tbody.innerHTML = "";
+
+        data.reverse().forEach((item) => {
+          const status = item.status ? "💧 MENYALA" : "🔴 MATI";
+          const row = `<tr>
+                    <td>${item.timestamp || "N/A"}</td>
+                    <td>${status}</td>
+                    <td>${item.mode || "manual"}</td>
+                    <td>${item.controlled_by || "system"}</td>
+                </tr>`;
+          tbody.innerHTML += row;
+        });
+      }
+
+      function showNotification(message, type) {
+        const notification = document.createElement("div");
+        notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 15px 20px;
+                border-radius: 5px;
+                color: white;
+                font-weight: bold;
+                z-index: 1000;
+                animation: slideIn 0.3s ease;
+            `;
+
+        if (type === "success") {
+          notification.style.background = "#28a745";
+        } else {
+          notification.style.background = "#dc3545";
+        }
+
+        notification.textContent = message;
+        document.body.appendChild(notification);
+
+        setTimeout(() => {
+          notification.remove();
+        }, 3000);
+      }
+
+      function startAutoRefresh() {
+        refreshInterval = setInterval(() => {
+          loadData();
+          loadHistory();
+          updateSchedule();
+        }, 3000);
+      }
+
+      function stopAutoRefresh() {
+        clearInterval(refreshInterval);
+      }
+
+      // Load data pertama kali
+      loadData();
+      loadHistory();
+
+      // Start auto refresh
+      startAutoRefresh();
+
+      // Update schedule setiap menit
+      setInterval(updateSchedule, 60000);
+    </script>
+  </body>
+</html>
